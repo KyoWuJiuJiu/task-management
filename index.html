@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Base Extensions</title>
+  </head>
+
+  <body>
+    <main class="main p-3 pt-4">
+      <form>
+        <div class="mb-3">
+          <label for="dateSelect" class="form-label fw-bold ms-1"
+            >Select Date</label
+          >
+          <input
+            type="text"
+            id="dateSelect"
+            class="form-control"
+            placeholder="Select Date"
+          />
+
+          <div style="height: 1rem"></div>
+          <div class="d-flex align-items-center gap-4 mb-3">
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="checkbox"
+                id="includeMeCheckbox"
+                checked
+              />
+              <label class="form-check-label fw-bold" for="includeMeCheckbox"
+                >我 (me)</label
+              >
+            </div>
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="checkbox"
+                id="thisWeekCheckbox"
+              />
+              <label class="form-check-label fw-bold" for="thisWeekCheckbox"
+                >本周</label
+              >
+            </div>
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="checkbox"
+                id="includeCompletedCheckbox"
+              />
+              <label
+                class="form-check-label fw-bold"
+                for="includeCompletedCheckbox"
+                >已完成</label
+              >
+            </div>
+          </div>
+
+          <!-- 分隔线：PD/OPS 之前（虚线） -->
+          <hr
+            class="ms-0"
+            style="border-top: 1.5px dashed #000000; opacity: 1"
+          />
+
+          <!-- PD / OPS 单独一行 -->
+          <div class="d-flex align-items-center gap-4 mb-3">
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="checkbox"
+                id="pdCheckbox"
+                checked
+              />
+              <label class="form-check-label fw-bold" for="pdCheckbox"
+                >PD</label
+              >
+            </div>
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="checkbox"
+                id="opsCheckbox"
+              />
+              <label class="form-check-label fw-bold" for="opsCheckbox"
+                >OPS</label
+              >
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-outline-primary" type="button" id="sendRecord">
+          发送
+        </button>
+
+        <div class="mb-2"></div>
+        <!-- 额外下移 1.5cm 的空白间距 -->
+        <div style="height: 1.5cm"></div>
+        <label class="form-label fw-bold ms-1" style="margin-bottom: 0.1rem;">Print Label</label>
+        <hr
+          class="ms-0"
+          style="border-top: 2px solid #000000; opacity: 1; margin-top: 0.1rem"
+        />
+
+        <!-- 空白行 -->
+        <div class="row mb-3">
+          <div class="col-4">
+            <label for="labelPosition" class="form-label fw-bold ms-1"
+              >Label Position</label
+            >
+            <input
+              type="number"
+              id="labelPosition"
+              class="form-control"
+              placeholder="1"
+              min="1"
+              max="30"
+              step="1"
+              inputmode="numeric"
+              aria-label="Label Position"
+            />
+          </div>
+          <div class="col-8">
+            <label for="exportMode" class="form-label fw-bold ms-1"
+              >输出方式
+            </label>
+            <select
+              id="exportMode"
+              class="form-select"
+              aria-label="Export / Print Mode"
+            >
+              <option value="word" selected>导出 Word</option>
+              <option value="print">直接打印</option>
+            </select>
+          </div>
+        </div>
+        <button
+          class="btn btn-outline-primary"
+          type="button"
+          id="generateLabel"
+        >
+          Generate Label
+        </button>
+
+        <!-- 与上面部分用黑线分隔 -->
+        <div class="mb-2"></div>
+        <!-- 额外下移 1.5cm 的空白间距 -->
+        <div style="height: 1.5cm"></div>
+        <label class="form-label fw-bold ms-1" style="margin-bottom: 0.1rem;">Insert Task</label>
+        <hr
+          class="ms-0"
+          style="border-top: 2px solid #000000; opacity: 1; margin-top: 0.01rem"
+        />
+
+        <!-- 插入记录：文本框 + 复选框 + 按钮（移动到表单最后） -->
+        <div class="mb-3">
+          <textarea
+            id="insertText"
+            class="form-control"
+            rows="5"
+            placeholder="请输入要插入的文本（可多行）"
+          ></textarea>
+        </div>
+        <div class="d-flex align-items-center gap-4 mb-3">
+          <div class="form-check m-0">
+            <input
+              class="form-check-input border border-dark shadow-lg"
+              type="radio"
+              name="deadlineChoice"
+              id="todayRadio"
+              checked
+            />
+            <label class="form-check-label fw-bold" for="todayRadio"
+              >今天</label
+            >
+          </div>
+          <div class="form-check m-0">
+            <input
+              class="form-check-input border border-dark shadow-lg"
+              type="radio"
+              name="deadlineChoice"
+              id="tomorrowRadio"
+            />
+            <label class="form-check-label fw-bold" for="tomorrowRadio"
+              >明天</label
+            >
+          </div>
+          <div class="form-check m-0">
+            <input
+              class="form-check-input border border-dark shadow-lg"
+              type="radio"
+              name="deadlineChoice"
+              id="afterTomorrowRadio"
+            />
+            <label class="form-check-label fw-bold" for="afterTomorrowRadio"
+              >后天</label
+            >
+          </div>
+        </div>
+        <div class="mb-3">
+          <button class="btn btn-primary" type="button" id="insertButton">
+            插入
+          </button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
