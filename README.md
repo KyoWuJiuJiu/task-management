@@ -30,17 +30,20 @@ npm install
 npm run dev
 ```
 
-## 📡 与后端接口
+## 📡 与后端接口（可选）
 
-- 接口地址：`POST http://localhost:8000/api/endpoint`
+- 默认禁用：出于上架审核的数据安全要求，前端默认不向外部发送多维表格数据。
+- 如确有业务需要，请在 `src/config/config.ts` 设置受信任的 HTTPS 地址（并在飞书后台加入白名单）。
+- 示例接口：`POST https://your.domain.com/api/endpoint`
 - 请求体（JSON）：
   ```json
   {
-    "summaryText": "xxx"
+    "summaryText": "...",
+    "pd": true,
+    "ops": false
   }
   ```
-
-⚠️ 注意：端口号必须与后端 Flask 启动时设置的端口保持一致（当前为 8000）。如果后端端口修改，这里的接口地址也需要同步修改。
+⚠️ 若未配置 `BACKEND_URL`，点击“发送”只会提示失败，不会发起网络请求。
 
 ## ⚙️ 注意事项
 
@@ -53,3 +56,32 @@ npm run dev
 - Feishu JS SDK
 - jQuery + Flatpickr
 - Flask (Python 后端)
+
+---
+
+## 📦 上架与部署指引（多维表格插件）
+
+1) 本地打包
+- `package.json` 中已设置 `"output": "dist"`，规范上传目录
+- `vite.config.js` 已设置 `base: './'`，资源引用为相对路径
+- `.gitignore` 已允许提交 `dist/`
+- 执行 `npm run build`，将生成的 `dist/` 直接上传，无需二次构建
+
+2) 路由规范
+- 禁止 history 路由；本项目未引入路由，默认符合要求（无需改动）
+- 如后续需要多页，请使用 hash 路由方案
+
+3) 初始化配置（建议）
+- 遍历表/字段/记录，根据字段类型与记录量选择“最佳表”；无记录则取首个表
+- 若无法自动识别，应给出明确提示，引导用户操作
+
+4) 实时监听（建议）
+- 监听 base/table/view/field/record/cell 及选中状态变化，及时刷新界面
+
+5) 性能
+- 批量操作优先使用批量接口（如 `addRecords`/`setRecords`/`getRecords`）
+- 项目已提供 `addRecords` 以用于批量插入
+
+6) 数据安全
+- 前端默认不对外发送数据（`BACKEND_URL` 为空）
+- 如启用后端通信，请使用受信任 HTTPS 域名并配置白名单

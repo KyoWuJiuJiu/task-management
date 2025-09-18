@@ -19,6 +19,7 @@ import { getFieldText } from "../utils/fieldTools";
 import { buildAvery5160WordHtml } from "../templates/wordLabelTemplate";
 import { showToast } from "../utils/logger";
 import { insertOneTask } from "../core/recordInsert";
+import { BACKEND_URL } from "../config/config";
 
 // Helper: HTML escape utility for measurement content
 function escHtml(s: string): string {
@@ -356,6 +357,12 @@ export function bindUIEvents() {
     // 读取 PD / OPS 勾选状态
     const pdChecked = $("#pdCheckbox").prop("checked");
     const opsChecked = $("#opsCheckbox").prop("checked");
+
+    // 未配置后端时，给出明确提示并跳过网络发送
+    if (!BACKEND_URL || BACKEND_URL.trim() === "") {
+      showUserError("未配置后端地址，已跳过发送（上线审核运行安全策略）");
+      return;
+    }
 
     // 发送到后端的内容（也会在 request.ts 内再次打印）
     const ok = await sendSummaryToServer({

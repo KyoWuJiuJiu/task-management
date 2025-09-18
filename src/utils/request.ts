@@ -40,6 +40,11 @@ export async function sendSummaryToServer(
   payload: SummaryPayload
 ): Promise<boolean> {
   try {
+    // 安全兜底：未配置后端地址时不发送任何数据，直接返回失败
+    if (!BACKEND_URL || BACKEND_URL.trim() === "") {
+      console.warn("BACKEND_URL 未配置，已阻止外部发送。");
+      return false;
+    }
     /**
      * JSON 是 JavaScript 的内置对象，用于处理 JSON 数据（JavaScript 对象表示法）。
      * 1. `JSON.stringify()` 方法将 JavaScript 对象转换为 JSON 字符串。
