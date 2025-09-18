@@ -39,10 +39,10 @@ async function getRequiredFields() {
     FIELD_KEYS.status.type
   );
   const assigneesId = getFieldIdByName(
-      fieldMetas as any[],
-      FIELD_KEYS.assignees.name,
-      FIELD_KEYS.assignees.type
-    );
+    fieldMetas as any[],
+    FIELD_KEYS.assignees.name,
+    FIELD_KEYS.assignees.type
+  );
   const followersId = getFieldIdByName(
     fieldMetas as any[],
     FIELD_KEYS.followers.name,
@@ -54,22 +54,40 @@ async function getRequiredFields() {
     FIELD_KEYS.deadline.type
   );
 
-  if (!taskNameId) throw new Error("未找到任务名称字段");
+  if (!taskNameId)
+    throw new Error("未找到任务名称字段,你可能没有在任务管理器这张表格中");
 
   return {
     table,
     taskNameField: await table.getField<ITextField>(taskNameId),
-    projectField: projectId ? await table.getField<ISingleSelectField>(projectId) : undefined,
-    statusField: statusId ? await table.getField<ISingleSelectField>(statusId) : undefined,
-    assigneesField: assigneesId ? await table.getField<IUserField>(assigneesId) : undefined,
-    followersField: followersId ? await table.getField<IUserField>(followersId) : undefined,
-    deadlineField: deadlineId ? await table.getField<IDateTimeField>(deadlineId) : undefined,
+    projectField: projectId
+      ? await table.getField<ISingleSelectField>(projectId)
+      : undefined,
+    statusField: statusId
+      ? await table.getField<ISingleSelectField>(statusId)
+      : undefined,
+    assigneesField: assigneesId
+      ? await table.getField<IUserField>(assigneesId)
+      : undefined,
+    followersField: followersId
+      ? await table.getField<IUserField>(followersId)
+      : undefined,
+    deadlineField: deadlineId
+      ? await table.getField<IDateTimeField>(deadlineId)
+      : undefined,
   };
 }
 
 export async function insertOneTask(input: InsertTaskInput): Promise<string> {
-  const { table, taskNameField, projectField, statusField, assigneesField, followersField, deadlineField } =
-    await getRequiredFields();
+  const {
+    table,
+    taskNameField,
+    projectField,
+    statusField,
+    assigneesField,
+    followersField,
+    deadlineField,
+  } = await getRequiredFields();
 
   const cells: ICell[] = [] as any;
   // 文本：任务名称（必填）
@@ -100,19 +118,33 @@ export async function insertOneTask(input: InsertTaskInput): Promise<string> {
   return recordId;
 }
 
-export async function insertManyTasks(list: InsertTaskInput[]): Promise<string[]> {
-  const { table, taskNameField, projectField, statusField, assigneesField, followersField, deadlineField } =
-    await getRequiredFields();
+export async function insertManyTasks(
+  list: InsertTaskInput[]
+): Promise<string[]> {
+  const {
+    table,
+    taskNameField,
+    projectField,
+    statusField,
+    assigneesField,
+    followersField,
+    deadlineField,
+  } = await getRequiredFields();
 
   const rows: ICell[][] = [];
   for (const input of list) {
     const cells: ICell[] = [] as any;
     cells.push(await taskNameField.createCell(input.taskName));
-    if (projectField && input.project) cells.push(await projectField.createCell(input.project));
-    if (statusField && input.status) cells.push(await statusField.createCell(input.status));
-    if (assigneesField && input.assignees?.length) cells.push(await assigneesField.createCell(input.assignees));
-    if (followersField && input.followers?.length) cells.push(await followersField.createCell(input.followers));
-    if (deadlineField && typeof input.deadline === "number") cells.push(await deadlineField.createCell(input.deadline));
+    if (projectField && input.project)
+      cells.push(await projectField.createCell(input.project));
+    if (statusField && input.status)
+      cells.push(await statusField.createCell(input.status));
+    if (assigneesField && input.assignees?.length)
+      cells.push(await assigneesField.createCell(input.assignees));
+    if (followersField && input.followers?.length)
+      cells.push(await followersField.createCell(input.followers));
+    if (deadlineField && typeof input.deadline === "number")
+      cells.push(await deadlineField.createCell(input.deadline));
     rows.push(cells);
   }
   const recordIds = await table.addRecords(rows);

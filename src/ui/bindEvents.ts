@@ -54,7 +54,8 @@ const labelMeasure = (() => {
       (root.style as any).boxSizing = "border-box";
       (root.style as any).whiteSpace = "normal";
       (root.style as any).wordBreak = "break-word";
-      root.style.fontFamily = "'凌慧体-简','Microsoft YaHei',Arial,Helvetica,sans-serif";
+      root.style.fontFamily =
+        "'凌慧体-简','Microsoft YaHei',Arial,Helvetica,sans-serif";
       (root.style as any).fontWeight = "700";
       document.body.appendChild(root);
     }
@@ -287,7 +288,7 @@ export function bindUIEvents() {
 
     if (!assigneesId || !projectId || !taskNameId || !statusId || !deadlineId) {
       showUserError(
-        "部分字段未配置，请确认执行人、项目、任务名称、状态、截止是否存在"
+        "部分字段未配置，请确认执行人、项目、任务名称、状态、截止是否存在(你可能没有在任务管理器表格中)"
       );
       return;
     }
@@ -329,13 +330,17 @@ export function bindUIEvents() {
       const myUserId = await (bitable as any)?.bridge?.getUserId?.();
       if (myUserId && includeMe === false) {
         const notMe = (rec: any) => {
-          if (typeof assigneesId !== 'string') return true;
+          if (typeof assigneesId !== "string") return true;
           const arr = rec?.record?.fields?.[assigneesId as string];
           if (!Array.isArray(arr)) return true;
-          return !arr.some((p: any) => String(p?.id || "") === String(myUserId));
+          return !arr.some(
+            (p: any) => String(p?.id || "") === String(myUserId)
+          );
         };
-        for (let i = matched.length - 1; i >= 0; i--) if (!notMe(matched[i])) matched.splice(i, 1);
-        for (let i = weekMatched.length - 1; i >= 0; i--) if (!notMe(weekMatched[i])) weekMatched.splice(i, 1);
+        for (let i = matched.length - 1; i >= 0; i--)
+          if (!notMe(matched[i])) matched.splice(i, 1);
+        for (let i = weekMatched.length - 1; i >= 0; i--)
+          if (!notMe(weekMatched[i])) weekMatched.splice(i, 1);
       }
     } catch (e) {
       console.warn("无法获取当前用户 ID，跳过‘我(me)’过滤:", e);
@@ -392,7 +397,9 @@ export function bindUIEvents() {
       let offsetDays = 0;
       if ($("#tomorrowRadio").prop("checked")) offsetDays = 1;
       else if ($("#afterTomorrowRadio").prop("checked")) offsetDays = 2;
-      const deadline = new Date(base.getTime() + offsetDays * 24 * 60 * 60 * 1000).getTime();
+      const deadline = new Date(
+        base.getTime() + offsetDays * 24 * 60 * 60 * 1000
+      ).getTime();
 
       // 插入前去重检查：仅按任务名称匹配
       try {
@@ -416,7 +423,10 @@ export function bindUIEvents() {
             const plain = Array.isArray(val)
               ? normalize(val.map((seg: any) => seg?.text ?? "").join(""))
               : normalize(val);
-            if (plain === target) { dup = true; break; }
+            if (plain === target) {
+              dup = true;
+              break;
+            }
           }
           if (dup) {
             showUserError("已存在同名任务，已阻止插入");
@@ -452,7 +462,7 @@ export function bindUIEvents() {
       $("#insertText").val("");
     } catch (err) {
       logError("插入记录失败", err);
-      showUserError("插入记录失败，请查看控制台日志");
+      showUserError("插入记录失败，你可能没有在任务管理器表格中");
     }
   });
 }
@@ -541,7 +551,7 @@ $("#generateLabel").on("click", async function () {
     );
 
     if (!taskNameId) {
-      showUserError("有部分记录没有填写任务名称");
+      showUserError("有部分记录没有填写任务名称(你可能没有在任务管理器表格中)");
       return;
     }
 
@@ -562,10 +572,12 @@ $("#generateLabel").on("click", async function () {
       const myUserId = await (bitable as any)?.bridge?.getUserId?.();
       if (myUserId && includeMe === false) {
         const notMe = (rec: any) => {
-          if (typeof assigneesId !== 'string') return true;
+          if (typeof assigneesId !== "string") return true;
           const arr = rec?.record?.fields?.[assigneesId as string];
           if (!Array.isArray(arr)) return true; // 无执行人，则不视为“我”，保留
-          return !arr.some((p: any) => String(p?.id || "") === String(myUserId));
+          return !arr.some(
+            (p: any) => String(p?.id || "") === String(myUserId)
+          );
         };
         // 直接覆盖 matched（后续用于发送与生成标签）
         for (let i = matched.length - 1; i >= 0; i--) {
@@ -615,7 +627,9 @@ $("#generateLabel").on("click", async function () {
         chosen.pop();
         iTask--;
       }
-      labelPayloads.push(`${pickedLong}\n${chosen.map((t) => `• ${t}`).join("\n")}`);
+      labelPayloads.push(
+        `${pickedLong}\n${chosen.map((t) => `• ${t}`).join("\n")}`
+      );
       const html = [
         `<div class=\"date\">${pickedLong}</div>`,
         ...chosen.map((t) => `<div class=\"task\">• ${t}</div>`),
@@ -701,7 +715,14 @@ $("#generateLabel").on("click", async function () {
       const blob = new Blob([wordHtml], { type: "application/msword" });
       const url = URL.createObjectURL(blob);
       const ts = new Date();
-      const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}-${String(ts.getHours()).padStart(2,'0')}${String(ts.getMinutes()).padStart(2,'0')}${String(ts.getSeconds()).padStart(2,'0')}`;
+      const tsStr = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}${String(ts.getDate()).padStart(2, "0")}-${String(
+        ts.getHours()
+      ).padStart(2, "0")}${String(ts.getMinutes()).padStart(2, "0")}${String(
+        ts.getSeconds()
+      ).padStart(2, "0")}`;
       const a = document.createElement("a");
       a.href = url;
       a.download = `Avery-5160-Labels-${tsStr}.doc`;
@@ -709,7 +730,7 @@ $("#generateLabel").on("click", async function () {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast(`已导出: ${a.download}`, 'success');
+      showToast(`已导出: ${a.download}`, "success");
     } else {
       // 直接打印：新窗口载入并触发打印
       const printWin = window.open("", "_blank");
