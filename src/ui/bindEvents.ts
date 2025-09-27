@@ -7,7 +7,7 @@ import $ from "jquery";
  * 由于在项目的其他地方（例如 `index.ts`）已经通过 `import` 或 `<script>` 标签引入了 `jQuery`，因此 `bindEvents.ts` 中不需要再次显式导入 `jQuery`。
  * 通过这种方式，`jQuery` 被全局引入并可在整个项目中使用，而不需要在每个文件中重复导入。
  */
-import { bitable } from "@lark-base-open/js-sdk";
+import { bitable, FieldType } from "@lark-base-open/js-sdk";
 import { getFieldIdByName } from "../utils/field";
 import { filterTasksByDate } from "../core/recordFilter";
 import { buildTaskSummary } from "../core/summaryBuilder";
@@ -19,7 +19,13 @@ import { getFieldText } from "../utils/fieldTools";
 import { buildAvery5160WordHtml } from "../templates/wordLabelTemplate";
 import { showToast } from "../utils/logger";
 import { insertOneTask } from "../core/recordInsert";
-import { BACKEND_URL } from "../config/config";
+import {
+  BACKEND_URL,
+  TASK_SYNC_API,
+  TASK_SYNC_STATUS_API,
+  TASK_SYNC_URL,
+} from "../config/config";
+import { showConfirmDialog } from "../utils/dialog";
 
 // Helper: HTML escape utility for measurement content
 function escHtml(s: string): string {
@@ -85,6 +91,8 @@ const labelMeasure = (() => {
   return { fits };
 })();
 
+const MAX_BULK_INSERT = 30;
+
 // 基于字符宽度的粗略行数估算：CJK 计 1 单位，ASCII 计 ~0.58 单位
 function estimateTaskLines(text: string): number {
   const s = String(text || "");
@@ -97,7 +105,556 @@ function estimateTaskLines(text: string): number {
   return Math.max(1, Math.ceil(units / UNITS_PER_LINE));
 }
 
+type TaskPerson = {
+  id: string;
+  name?: string;
+  enName?: string;
+};
+
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulValue(item));
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text.trim().length > 0;
+    if (typeof obj.name === "string") return obj.name.trim().length > 0;
+    if (typeof obj.id === "string") return obj.id.trim().length > 0;
+    return Object.keys(obj).length > 0;
+  }
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return !Number.isNaN(value);
+  return true;
+}
+
+function cellToPlainText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (value instanceof Date) return fmtYmd(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item == null) return "";
+        if (typeof item === "string") return item;
+        if (typeof item === "number") return String(item);
+        if (typeof item === "object" && typeof (item as any).text === "string")
+          return (item as any).text;
+        if (typeof item === "object" && typeof (item as any).name === "string")
+          return (item as any).name;
+        if (typeof item === "object" && typeof (item as any).value === "string")
+          return (item as any).value;
+        return "";
+      })
+      .filter((v) => v.trim().length > 0)
+      .join("");
+  }
+  if (typeof value === "object" && value) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.name === "string") return obj.name;
+    if (typeof obj.value === "string") return obj.value;
+  }
+  return String(value ?? "");
+}
+
+function extractUsers(value: unknown): TaskPerson[] {
+  if (!Array.isArray(value)) return [];
+  const users: TaskPerson[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const id = String((item as any).id || "").trim();
+    if (!id) continue;
+    const person: TaskPerson = { id };
+    const name = (item as any).name;
+    const enName = (item as any).enName || (item as any).en_name;
+    if (typeof name === "string" && name.trim().length > 0) person.name = name;
+    if (typeof enName === "string" && enName.trim().length > 0) person.enName = enName;
+    users.push(person);
+  }
+  return users;
+}
+
+function usersToDisplay(users: TaskPerson[]): string {
+  return users
+    .map((u) => u.name || u.enName || u.id)
+    .filter((s) => typeof s === "string" && s.trim().length > 0)
+    .join(",");
+}
+
+function formatDeadlineValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "number" && !Number.isNaN(value)) return fmtYmd(new Date(value));
+  if (value instanceof Date) return fmtYmd(value);
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.value === "string") return obj.value;
+  }
+  return cellToPlainText(value);
+}
+
+type TaskSyncEntry = {
+  recordId: string;
+  payload?: Record<string, unknown>;
+};
+
+type TaskSyncResultEntry = {
+  recordId?: string;
+  status?: string;
+  message?: string;
+  detail?: string;
+  http?: number;
+  body?: unknown;
+};
+
+type TaskSyncStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "accepted"
+  | "partial"
+  | "error"
+  | "unknown";
+
+interface TaskSyncResponse {
+  status: TaskSyncStatus;
+  jobId?: string;
+  results: TaskSyncResultEntry[];
+  createdAt?: number;
+  updatedAt?: number;
+  completedAt?: number;
+}
+
+const FINAL_TASK_STATUSES = new Set<TaskSyncStatus>([
+  "success",
+  "accepted",
+  "partial",
+  "error",
+]);
+
+function normalizeTaskResults(input: unknown): TaskSyncResultEntry[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return input as TaskSyncResultEntry[];
+  if (typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (Array.isArray(obj.results)) return obj.results as TaskSyncResultEntry[];
+    if (Array.isArray(obj.data)) return obj.data as TaskSyncResultEntry[];
+    if (obj.result && Array.isArray(obj.result)) return obj.result as TaskSyncResultEntry[];
+    if (obj.recordId || obj.status || obj.message || obj.detail) {
+      return [obj as TaskSyncResultEntry];
+    }
+  }
+  return [];
+}
+
+function extractResultMessage(result: TaskSyncResultEntry): string {
+  const candidates = [result.message, result.detail];
+  for (const item of candidates) {
+    if (typeof item === "string" && item.trim().length > 0) {
+      return item.trim();
+    }
+  }
+  if (typeof result.body === "string" && result.body.trim().length > 0) {
+    return result.body.trim();
+  }
+  if (result.body && typeof result.body === "object") {
+    try {
+      return JSON.stringify(result.body);
+    } catch (e) {
+      console.warn("无法序列化任务同步 body", e);
+    }
+  }
+  return "未知错误";
+}
+
+function summarizeFailure(results: TaskSyncResultEntry[], limit = 3): string {
+  return results
+    .slice(0, limit)
+    .map((item) => {
+      const id = item.recordId || "未知记录";
+      return `${id}:${extractResultMessage(item)}`;
+    })
+    .join("；");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function ensureTaskSyncConfig(): void {
+  if (!TASK_SYNC_URL || TASK_SYNC_URL.trim() === "") {
+    throw new Error("未配置 TASK_SYNC_URL，无法同步任务");
+  }
+  if (!TASK_SYNC_API || TASK_SYNC_API.trim() === "") {
+    throw new Error("未配置 TASK_SYNC_API，无法同步任务");
+  }
+}
+
+async function triggerTaskSyncBatch(entries: TaskSyncEntry[]): Promise<TaskSyncResponse> {
+  ensureTaskSyncConfig();
+  const resp = await fetch(TASK_SYNC_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      webhookUrl: TASK_SYNC_URL,
+      records: entries,
+    }),
+  });
+
+  const raw = await resp.text();
+  let data: any = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch (err) {
+      console.warn("解析任务同步响应 JSON 失败", err, raw);
+      data = { raw };
+    }
+  }
+
+  if (resp.status === 202) {
+    const jobId = typeof data === "object" ? data?.jobId : undefined;
+    if (!jobId) {
+      throw new Error("批量同步已受理，但未返回 jobId");
+    }
+    return {
+      status: (typeof data === "object" && data?.status) || "accepted",
+      jobId,
+      results: [],
+      createdAt: data?.createdAt,
+    };
+  }
+
+  if (resp.ok) {
+    return {
+      status: (typeof data === "object" && data?.status) || "success",
+      results: normalizeTaskResults(data),
+      createdAt: data?.createdAt,
+      completedAt: data?.completedAt,
+      updatedAt: data?.updatedAt,
+    };
+  }
+
+  const message =
+    (typeof data === "object" && (data?.message || data?.detail || data?.error)) ||
+    (typeof raw === "string" && raw) ||
+    "任务同步请求失败";
+  throw new Error(`HTTP ${resp.status}: ${message}`);
+}
+
+async function pollTaskSyncJob(
+  jobId: string,
+  options: { attempts?: number; intervalMs?: number } = {}
+): Promise<TaskSyncResponse> {
+  if (!TASK_SYNC_STATUS_API || TASK_SYNC_STATUS_API.trim() === "") {
+    throw new Error("未配置 TASK_SYNC_STATUS_API，无法查询批量任务状态");
+  }
+  const { attempts = 12, intervalMs = 5000 } = options;
+  const url = `${TASK_SYNC_STATUS_API}/${encodeURIComponent(jobId)}`;
+
+  for (let i = 0; i < attempts; i++) {
+    const wait = i === 0 ? 3000 : intervalMs;
+    if (wait > 0) {
+      await delay(wait);
+    }
+
+    const resp = await fetch(url, { method: "GET" });
+    const raw = await resp.text();
+    let data: any = {};
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch (err) {
+        console.warn("解析批量任务状态 JSON 失败", err, raw);
+        data = { raw };
+      }
+    }
+
+    if (resp.status === 404) {
+      throw new Error("批量任务不存在或已过期");
+    }
+    if (!resp.ok) {
+      const message =
+        (typeof data === "object" && (data?.message || data?.detail || data?.error)) ||
+        raw ||
+        "查询批量任务状态失败";
+      throw new Error(`HTTP ${resp.status}: ${message}`);
+    }
+
+    const status: TaskSyncStatus =
+      (typeof data === "object" && data?.status) || "unknown";
+    if (!FINAL_TASK_STATUSES.has(status)) {
+      continue;
+    }
+
+    return {
+      status,
+      jobId,
+      results: normalizeTaskResults(data),
+      createdAt: data?.createdAt,
+      updatedAt: data?.updatedAt,
+      completedAt: data?.completedAt,
+    };
+  }
+
+  throw new Error("批量任务未在预期时间内完成，请稍后查看运行日志");
+}
+
 export function bindUIEvents() {
+  const $customDeadline = $("#customDeadlinePicker");
+  const $deadlineRadios = $("#todayRadio, #tomorrowRadio, #afterTomorrowRadio");
+
+  if ($customDeadline.length) {
+    const clearCustomDeadline = () => {
+      const picker = ($customDeadline.get(0) as any)?._flatpickr;
+      if (picker) {
+        picker.clear();
+      } else {
+        $customDeadline.val("");
+      }
+    };
+
+    $customDeadline.on("change", function () {
+      const val = String(($customDeadline.val() ?? "")).trim();
+      if (val) {
+        $deadlineRadios.prop("checked", false);
+      } else {
+        if (!$deadlineRadios.is(":checked")) {
+          $("#todayRadio").prop("checked", true);
+        }
+      }
+    });
+
+    $deadlineRadios.on("change", function () {
+      if ($(this).prop("checked")) {
+        clearCustomDeadline();
+      }
+    });
+  }
+
+  $("#syncTasksButton").on("click", async function () {
+    const btn = this as HTMLButtonElement;
+    const originalText = btn.textContent || "";
+    btn.disabled = true;
+    btn.textContent = "同步中...";
+    try {
+      const table = await bitable.base.getActiveTable();
+      const fieldMetas = await table.getFieldMetaList();
+      const assigneesId = getFieldIdByName(
+        fieldMetas,
+        FIELD_KEYS.assignees.name,
+        FIELD_KEYS.assignees.type
+      );
+      const taskNameId = getFieldIdByName(
+        fieldMetas,
+        FIELD_KEYS.taskName.name,
+        FIELD_KEYS.taskName.type
+      );
+      const deadlineId = getFieldIdByName(
+        fieldMetas,
+        FIELD_KEYS.deadline.name,
+        FIELD_KEYS.deadline.type
+      );
+      const statusId = getFieldIdByName(
+        fieldMetas,
+        FIELD_KEYS.status.name,
+        FIELD_KEYS.status.type
+      );
+      const followersId = getFieldIdByName(
+        fieldMetas,
+        FIELD_KEYS.followers.name,
+        FIELD_KEYS.followers.type
+      );
+      const remarkId = getFieldIdByName(fieldMetas, "任务备注", FieldType.Text);
+      const commentId = getFieldIdByName(fieldMetas, "任务评论", FieldType.Text);
+
+      if (!assigneesId || !taskNameId || !deadlineId || !statusId) {
+        showUserError("未找到同步所需的字段，请确认当前表格字段配置");
+        return;
+      }
+
+      const view = await table.getActiveView();
+      let targetRecordIds: string[] = [];
+      try {
+        const selected = await (view as any)?.getSelectedRecordIdList?.();
+        if (Array.isArray(selected)) {
+          targetRecordIds = selected.filter(
+            (id): id is string => typeof id === "string" && id.length > 0
+          );
+        }
+      } catch (e) {
+        console.warn("获取选中记录失败，fallback 到全部可见记录", e);
+      }
+
+      if (targetRecordIds.length === 0) {
+        const confirmed = await showConfirmDialog({
+          title: "同步当前视图?",
+          message: "是否同步本视图所有记录!",
+          confirmText: "同步全部",
+          cancelText: "取消",
+        });
+
+        if (!confirmed) {
+          showToast("已取消同步", "info");
+          return;
+        }
+
+        const visible = await view.getVisibleRecordIdList();
+        targetRecordIds = (visible || []).filter(
+          (id): id is string => typeof id === "string" && id.length > 0
+        );
+      }
+
+      targetRecordIds = Array.from(new Set(targetRecordIds));
+      if (targetRecordIds.length === 0) {
+        showUserError("当前视图没有可同步的记录");
+        return;
+      }
+
+      const fetchResults = await Promise.allSettled(
+        targetRecordIds.map(async (recordId) => {
+          const value = await table.getRecordById(recordId);
+          return {
+            recordId,
+            fields: (value && (value as any).fields) || {},
+          };
+        })
+      );
+
+      const records: { recordId: string; fields: Record<string, unknown> }[] = [];
+      fetchResults.forEach((res, idx) => {
+        const recordId = targetRecordIds[idx] || "未知记录";
+        if (res.status === "fulfilled") {
+          const value = res.value as { fields?: Record<string, unknown> };
+          records.push({ recordId, fields: value?.fields ?? {} });
+        } else {
+          logError(`读取记录 ${recordId} 失败`, (res as any).reason);
+        }
+      });
+
+      if (!records.length) {
+        showUserError("未查找到可同步的记录数据");
+        return;
+      }
+
+      const checked = records.map((rec) => {
+        const fields = rec.fields || {};
+        const conditions: string[] = [];
+        if (!hasMeaningfulValue(fields[taskNameId])) conditions.push("任务名称");
+        if (!hasMeaningfulValue(fields[assigneesId])) conditions.push("任务执行者");
+        if (!hasMeaningfulValue(fields[deadlineId])) conditions.push("任务截止时间");
+        if (!hasMeaningfulValue(fields[statusId])) conditions.push("任务完成状态");
+        return { rec, missing: conditions };
+      });
+
+      const eligible = checked.filter((item) => item.missing.length === 0).map((item) => item.rec);
+      const skippedCount = checked.length - eligible.length;
+
+      if (eligible.length === 0) {
+        if (skippedCount > 0) {
+          showUserError("选中记录均缺少必填字段，已取消同步");
+        } else {
+          showUserError("没有满足同步条件的记录");
+        }
+        return;
+      }
+
+      const syncEntries: TaskSyncEntry[] = eligible.map((rec) => {
+        const fields = rec.fields || {};
+        const executors = extractUsers(fields[assigneesId]);
+        const followers = followersId ? extractUsers(fields[followersId]) : [];
+        const payload: Record<string, unknown> = {
+          任务表行: rec.recordId,
+          操作: "同步任务",
+          任务名称: cellToPlainText(fields[taskNameId]),
+          任务截止时间: formatDeadlineValue(fields[deadlineId]),
+          任务完成状态: cellToPlainText(fields[statusId]),
+          执行者: executors,
+          执行者名称: usersToDisplay(executors),
+        };
+        if (remarkId) payload["任务备注"] = cellToPlainText(fields[remarkId]);
+        if (commentId) payload["任务评论"] = cellToPlainText(fields[commentId]);
+        if (followersId) {
+          payload["任务关注者"] = followers;
+          payload["任务关注者名称"] = usersToDisplay(followers);
+        }
+        return { recordId: rec.recordId, payload };
+      });
+
+      const triggerResponse = await triggerTaskSyncBatch(syncEntries);
+      let finalResponse = triggerResponse;
+
+      if (triggerResponse.jobId) {
+        showToast(
+          `已提交 ${syncEntries.length} 条任务，集成流执行中...`,
+          "info"
+        );
+        const attempts = Math.max(12, Math.ceil(syncEntries.length * 1.5));
+        finalResponse = await pollTaskSyncJob(triggerResponse.jobId, {
+          attempts,
+          intervalMs: 5000,
+        });
+      }
+
+      let results = finalResponse.results || [];
+      if (results.length === 0 && finalResponse.status === "success") {
+        results = syncEntries.map((entry) => ({
+          recordId: entry.recordId,
+          status: "success",
+        }));
+      }
+
+      const successCount = results.filter((r) => r.status === "success").length;
+      const acceptedResults = results.filter((r) => r.status === "accepted");
+      const acceptedCount = acceptedResults.length;
+      const failedResults = results.filter((r) => r.status === "error");
+      const failureCount = failedResults.length;
+      const totalSubmitted = syncEntries.length;
+      const pendingCount = Math.max(
+        0,
+        totalSubmitted - (successCount + acceptedCount + failureCount)
+      );
+
+      if (failureCount === 0 && acceptedCount === 0) {
+        const skippedMsg = skippedCount > 0 ? `，跳过 ${skippedCount} 条` : "";
+        showToast(`成功同步 ${successCount} 条任务${skippedMsg}`, "success");
+      } else if (failureCount === 0) {
+        const acceptedMsg =
+          acceptedCount > 0
+            ? `，${acceptedCount} 条任务仍在集成流中执行`
+            : "";
+        const pendingMsg =
+          pendingCount > 0 ? `，${pendingCount} 条任务状态待确认` : "";
+        const skippedMsg = skippedCount > 0 ? `，跳过 ${skippedCount} 条` : "";
+        showToast(
+          `已提交 ${totalSubmitted} 条任务${acceptedMsg}${pendingMsg}${skippedMsg}，请稍后在任务助手查看结果`,
+          "warning"
+        );
+      } else {
+        const failureSummary = summarizeFailure(failedResults);
+        const acceptedMsg =
+          acceptedCount > 0 ? `，另有 ${acceptedCount} 条待确认` : "";
+        const skippedMsg =
+          skippedCount > 0 ? `，另外跳过 ${skippedCount} 条` : "";
+        showUserError(
+          `同步完成：成功 ${successCount} 条，失败 ${failureCount} 条${acceptedMsg}${skippedMsg}。失败详情：${failureSummary}`
+        );
+      }
+    } catch (err) {
+      logError("批量同步任务失败", err);
+      const reason = err instanceof Error ? err.message : "未知错误";
+      showUserError(`批量同步任务时发生异常：${reason}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
   $("#sendRecord").on("click", async function () {
     // 获取复选框 #thisWeekCheckbox 的选中状态，返回 true 或 false，表示用户是否选择了“本周”选项
     const isThisWeekChecked = $("#thisWeekCheckbox").prop("checked"); //	•	prop() 是 jQuery 提供的方法，用于操作 DOM 元素的属性。与 .attr() 方法不同，.prop() 是用来处理 布尔属性（如 checked, disabled, selected 等）的。
@@ -384,60 +941,88 @@ export function bindUIEvents() {
 
   // 插入任务按钮：根据文本框与日期单选插入一条记录
   $("#insertButton").on("click", async function () {
+    const rawInput = String($("#insertText").val() || "");
+    const tasks = rawInput
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (tasks.length === 0) {
+      showUserError("请输入至少一条任务名称（每行一条）");
+      return;
+    }
+    if (tasks.length > MAX_BULK_INSERT) {
+      showUserError(`一次最多插入 ${MAX_BULK_INSERT} 条任务，请分批处理`);
+      return;
+    }
+
+    const btn = this as HTMLButtonElement;
+    const originalLabel = btn.textContent || "插入";
+    btn.disabled = true;
+    btn.textContent = "插入中...";
+
     try {
-      const text = String($("#insertText").val() || "").trim();
-      if (!text) {
-        showUserError("请输入任务名称");
+      let deadlineTimestamp: number | undefined;
+
+      if ($customDeadline.length) {
+        const customValue = String($customDeadline.val() ?? "").trim();
+        if (customValue) {
+          const parts = customValue.split("-").map((part) => Number(part));
+          if (parts.length === 3) {
+            const [year, month, day] = parts;
+            if (
+              Number.isFinite(year) &&
+              Number.isFinite(month) &&
+              Number.isFinite(day)
+            ) {
+              const customDate = new Date(year, month - 1, day);
+              customDate.setHours(0, 0, 0, 0);
+              if (!Number.isNaN(customDate.getTime())) {
+                deadlineTimestamp = customDate.getTime();
+              }
+            }
+          }
+        }
+      }
+
+      if (typeof deadlineTimestamp !== "number") {
+        const base = new Date();
+        base.setHours(0, 0, 0, 0);
+        let offsetDays = 0;
+        if ($("#tomorrowRadio").prop("checked")) offsetDays = 1;
+        else if ($("#afterTomorrowRadio").prop("checked")) offsetDays = 2;
+        deadlineTimestamp = base.getTime() + offsetDays * 24 * 60 * 60 * 1000;
+      }
+
+      const table = await bitable.base.getActiveTable();
+      const fieldMetas = await table.getFieldMetaList();
+      const taskNameId = getFieldIdByName(
+        fieldMetas as any[],
+        FIELD_KEYS.taskName.name,
+        FIELD_KEYS.taskName.type
+      );
+      if (!taskNameId) {
+        showUserError("未找到任务名称字段，可能不在任务管理器表格中");
         return;
       }
 
-      // 计算截止日期（今天/明天/后天，取当天 00:00）
-      const base = new Date();
-      base.setHours(0, 0, 0, 0);
-      let offsetDays = 0;
-      if ($("#tomorrowRadio").prop("checked")) offsetDays = 1;
-      else if ($("#afterTomorrowRadio").prop("checked")) offsetDays = 2;
-      const deadline = new Date(
-        base.getTime() + offsetDays * 24 * 60 * 60 * 1000
-      ).getTime();
-
-      // 插入前去重检查：仅按任务名称匹配
+      const existingNames = new Set<string>();
       try {
-        const table = await bitable.base.getActiveTable();
-        const fieldMetas = await table.getFieldMetaList();
-        const taskNameId = getFieldIdByName(
-          fieldMetas as any[],
-          FIELD_KEYS.taskName.name,
-          FIELD_KEYS.taskName.type
-        );
-        if (taskNameId) {
-          const recordIdList = await table.getRecordIdList();
-          // 读取文本字段值并做精确匹配
-          // 用字段实例批量读取，避免依赖 rec.record.fields 结构
-          const textField: any = await table.getField(taskNameId);
-          const normalize = (s: any) => String(s ?? "").trim();
-          const target = normalize(text);
-          let dup = false;
-          for (const rid of recordIdList) {
+        const recordIdList = await table.getRecordIdList();
+        const textField: any = await table.getField(taskNameId);
+        for (const rid of recordIdList) {
+          try {
             const val = await textField.getValue(rid);
-            const plain = Array.isArray(val)
-              ? normalize(val.map((seg: any) => seg?.text ?? "").join(""))
-              : normalize(val);
-            if (plain === target) {
-              dup = true;
-              break;
-            }
-          }
-          if (dup) {
-            showUserError("已存在同名任务，已阻止插入");
-            return;
+            const plain = cellToPlainText(val).trim();
+            if (plain) existingNames.add(plain);
+          } catch (err) {
+            console.warn("读取任务名称失败，将忽略该记录", err);
           }
         }
-      } catch (e) {
-        console.warn("去重检查失败，继续尝试插入:", e);
+      } catch (err) {
+        console.warn("获取现有任务列表失败，继续尝试插入", err);
       }
 
-      // 当前用户作为执行者与关注者
       let meId: string | undefined;
       try {
         meId = await (bitable as any)?.bridge?.getUserId?.();
@@ -445,24 +1030,89 @@ export function bindUIEvents() {
         console.warn("获取当前用户失败，将不写入执行者/关注者:", e);
       }
 
-      const payload: any = {
-        taskName: text,
-        project: "日常任务",
-        status: "未完成",
-        deadline,
-      };
-      if (meId) {
-        payload.assignees = [{ id: String(meId) }];
-        payload.followers = [{ id: String(meId) }];
+      const successes: { task: string; recordId: string }[] = [];
+      const duplicates: string[] = [];
+      const failures: { task: string; reason: string }[] = [];
+
+      for (const taskName of tasks) {
+        if (existingNames.has(taskName)) {
+          duplicates.push(taskName);
+          continue;
+        }
+
+        const payload: any = {
+          taskName,
+          project: "日常任务",
+          status: "未完成",
+          deadline: deadlineTimestamp,
+        };
+        if (meId) {
+          payload.assignees = [{ id: String(meId) }];
+          payload.followers = [{ id: String(meId) }];
+        }
+
+        try {
+          const recordId = await insertOneTask(payload);
+          successes.push({ task: taskName, recordId });
+          existingNames.add(taskName);
+        } catch (err) {
+          logError(`插入记录 ${taskName} 失败`, err);
+          const reason = err instanceof Error ? err.message : "未知错误";
+          failures.push({ task: taskName, reason });
+        }
       }
 
-      const recordId = await insertOneTask(payload);
-      showToast(`已插入记录: ${recordId}`, "success");
-      // 清空输入框，便于继续快速插入
-      $("#insertText").val("");
+      const summaryParts: string[] = [];
+      if (successes.length > 0) summaryParts.push(`成功 ${successes.length} 条`);
+      if (duplicates.length > 0) summaryParts.push(`重复 ${duplicates.length} 条`);
+      if (failures.length > 0) summaryParts.push(`失败 ${failures.length} 条`);
+
+      const formatListPreview = (items: string[]): string => {
+        const preview = items.slice(0, 3).join("、");
+        return items.length > 3 ? `${preview}…` : preview;
+      };
+
+      if (failures.length === 0 && duplicates.length === 0) {
+        showToast(summaryParts.join("，"), "success");
+        $("#insertText").val("");
+      } else {
+        const detailParts: string[] = [];
+        if (duplicates.length > 0) {
+          detailParts.push(`重复: ${formatListPreview(duplicates)}`);
+        }
+        if (failures.length > 0) {
+          const failurePreview = failures
+            .slice(0, 3)
+            .map((item) => `${item.task}:${item.reason}`)
+            .join("；");
+          detailParts.push(
+            `失败: ${failurePreview}${failures.length > 3 ? "…" : ""}`
+          );
+        }
+        const message = `${summaryParts.join("，")}。${detailParts.join("；")}`;
+        showToast(message, "warning");
+        const remaining = [
+          ...duplicates,
+          ...failures.map((item) => item.task),
+        ];
+        $("#insertText").val(remaining.join("\n"));
+      }
     } catch (err) {
       logError("插入记录失败", err);
-      showUserError("插入记录失败，你可能没有在任务管理器表格中");
+      const reason = err instanceof Error ? err.message : "未知错误";
+      showUserError(`插入记录失败：${reason}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
+
+  $("#insertText").on("keydown", function (event: JQuery.KeyDownEvent) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (!$("#insertButton").prop("disabled")) {
+        $("#insertButton").trigger("click");
+      }
     }
   });
 }

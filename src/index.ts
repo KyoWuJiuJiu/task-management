@@ -11,4 +11,5 @@ import { bindUIEvents } from "./ui/bindEvents";
 $(function () {
   bindUIEvents();
   initDatePicker();
+  initDatePicker("#customDeadlinePicker");
 });

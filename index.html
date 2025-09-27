@@ -10,9 +10,33 @@
   <body>
     <main class="main p-3 pt-4">
       <form>
+        <!-- 一键同步区块 -->
+        <label class="form-label fw-bold ms-1" style="margin-bottom: 0.1rem;">一键同步</label>
+        <hr
+          class="ms-0"
+          style="border-top: 2px solid #000000; opacity: 1; margin-top: 0.01rem"
+        />
+        <div class="mb-3">
+          <button
+            class="btn btn-outline-success"
+            type="button"
+            id="syncTasksButton"
+          >
+            一键同步
+          </button>
+        </div>
+
+        <div class="mb-2"></div>
+        <div style="height: 1.5cm"></div>
+        <label class="form-label fw-bold ms-1" style="margin-bottom: 0.1rem;">发送</label>
+        <hr
+          class="ms-0"
+          style="border-top: 2px solid #000000; opacity: 1; margin-top: 0.01rem"
+        />
+
         <div class="mb-3">
           <label for="dateSelect" class="form-label fw-bold ms-1"
-            >Select Date</label
+            >任务截止日期</label
           >
           <input
             type="text"
@@ -89,12 +113,13 @@
             </div>
           </div>
         </div>
-        <button class="btn btn-outline-primary" type="button" id="sendRecord">
-          发送
-        </button>
+        <div class="mb-3">
+          <button class="btn btn-outline-primary" type="button" id="sendRecord">
+            发送
+          </button>
+        </div>
 
         <div class="mb-2"></div>
-        <!-- 额外下移 1.5cm 的空白间距 -->
         <div style="height: 1.5cm"></div>
         <label class="form-label fw-bold ms-1" style="margin-bottom: 0.1rem;">Print Label</label>
         <hr
@@ -158,43 +183,59 @@
             id="insertText"
             class="form-control"
             rows="5"
-            placeholder="请输入要插入的文本（可多行）"
+            placeholder="每行一条任务，按 Cmd/Ctrl + Enter 快速插入"
           ></textarea>
+          <div class="form-text text-muted">
+            粘贴多行文本即可一次插入多条任务。
+          </div>
         </div>
-        <div class="d-flex align-items-center gap-4 mb-3">
-          <div class="form-check m-0">
-            <input
-              class="form-check-input border border-dark shadow-lg"
-              type="radio"
-              name="deadlineChoice"
-              id="todayRadio"
-              checked
-            />
-            <label class="form-check-label fw-bold" for="todayRadio"
-              >今天</label
-            >
+        <div class="mb-3">
+          <div class="d-flex flex-wrap align-items-center gap-4">
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="radio"
+                name="deadlineChoice"
+                id="todayRadio"
+                checked
+              />
+              <label class="form-check-label fw-bold" for="todayRadio"
+                >今天</label
+              >
+            </div>
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="radio"
+                name="deadlineChoice"
+                id="tomorrowRadio"
+              />
+              <label class="form-check-label fw-bold" for="tomorrowRadio"
+                >明天</label
+              >
+            </div>
+            <div class="form-check m-0">
+              <input
+                class="form-check-input border border-dark shadow-lg"
+                type="radio"
+                name="deadlineChoice"
+                id="afterTomorrowRadio"
+              />
+              <label class="form-check-label fw-bold" for="afterTomorrowRadio"
+                >后天</label
+              >
+            </div>
           </div>
-          <div class="form-check m-0">
-            <input
-              class="form-check-input border border-dark shadow-lg"
-              type="radio"
-              name="deadlineChoice"
-              id="tomorrowRadio"
-            />
-            <label class="form-check-label fw-bold" for="tomorrowRadio"
-              >明天</label
+          <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+            <label class="form-check-label fw-bold" for="customDeadlinePicker"
+              >日期</label
             >
-          </div>
-          <div class="form-check m-0">
             <input
-              class="form-check-input border border-dark shadow-lg"
-              type="radio"
-              name="deadlineChoice"
-              id="afterTomorrowRadio"
+              type="text"
+              class="form-control form-control-sm border border-dark shadow-sm"
+              id="customDeadlinePicker"
+              placeholder="选择日期"
             />
-            <label class="form-check-label fw-bold" for="afterTomorrowRadio"
-              >后天</label
-            >
           </div>
         </div>
         <div class="mb-3">
@@ -202,6 +243,7 @@
             插入
           </button>
         </div>
+
       </form>
     </main>
     <script type="module" src="/src/index.ts"></script>
