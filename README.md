@@ -33,7 +33,8 @@ npm run dev
 ## 📡 与后端接口（可选）
 
 - 默认禁用：出于上架审核的数据安全要求，前端默认不向外部发送多维表格数据。
-- 如确有业务需要，请在 `src/config/config.ts` 设置受信任的 HTTPS 地址（并在飞书后台加入白名单）。
+- 如确有业务需要，请在 `.env.{env}` 中设置 `VITE_TASK_SEND_API` 指向受信任的 HTTPS 地址（并在飞书后台加入白名单）。
+- 同步任务需配置 `VITE_TASK_SYNC_TRIGGER_API`（用于触发后端批量任务）并在多维表格中新建名为“集成流URL”的表，首列首行填写对应的 webhook 地址。
 - 示例接口：`POST https://your.domain.com/api/endpoint`
 - 请求体（JSON）：
   ```json
@@ -43,7 +44,8 @@ npm run dev
     "ops": false
   }
   ```
-⚠️ 若未配置 `BACKEND_URL`，点击“发送”只会提示失败，不会发起网络请求。
+⚠️ 若未配置 `TASK_SEND_API`，点击“发送”只会提示失败，不会发起网络请求。
+⚠️ 若“集成流URL”表缺少 webhook 地址或 `VITE_TASK_SYNC_TRIGGER_API` 未配置，批量同步会直接报错并停止。
 
 ## ⚙️ 注意事项
 
@@ -83,5 +85,5 @@ npm run dev
 - 项目已提供 `addRecords` 以用于批量插入
 
 6) 数据安全
-- 前端默认不对外发送数据（`BACKEND_URL` 为空）
+- 前端默认不对外发送数据（`TASK_SEND_API` 为空）
 - 如启用后端通信，请使用受信任 HTTPS 域名并配置白名单

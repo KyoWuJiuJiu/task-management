@@ -10,7 +10,7 @@
  *    - 返回值类型为 `string`，表示函数最终会返回一个字符串。
  *    - 适用于需要接收多种类型并返回统一类型的场景。
  */
-import { BACKEND_URL } from "../config/config";
+import { TASK_SEND_API } from "../config/config";
 
 export interface SummaryPayload {
   summaryText: string;
@@ -41,8 +41,8 @@ export async function sendSummaryToServer(
 ): Promise<boolean> {
   try {
     // 安全兜底：未配置后端地址时不发送任何数据，直接返回失败
-    if (!BACKEND_URL || BACKEND_URL.trim() === "") {
-      console.warn("BACKEND_URL 未配置，已阻止外部发送。");
+    if (!TASK_SEND_API || TASK_SEND_API.trim() === "") {
+      console.warn("TASK_SEND_API 未配置，已阻止外部发送。");
       return false;
     }
     /**
@@ -56,7 +56,7 @@ export async function sendSummaryToServer(
     // 打印发送给后端的完整内容
     console.log("Sending payload to backend:", payload);
 
-    const response = await fetch(BACKEND_URL, {
+    const response = await fetch(TASK_SEND_API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

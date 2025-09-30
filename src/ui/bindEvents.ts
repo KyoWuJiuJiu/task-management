@@ -20,11 +20,11 @@ import { buildAvery5160WordHtml } from "../templates/wordLabelTemplate";
 import { showToast } from "../utils/logger";
 import { insertOneTask } from "../core/recordInsert";
 import {
-  BACKEND_URL,
-  TASK_SYNC_API,
+  TASK_SEND_API,
   TASK_SYNC_STATUS_API,
-  TASK_SYNC_URL,
+  TASK_SYNC_TRIGGER_API,
 } from "../config/config";
+import { getTaskSyncWebhookUrl } from "../core/taskSyncWebhook";
 import { showConfirmDialog } from "../utils/dialog";
 
 // Helper: HTML escape utility for measurement content
@@ -113,7 +113,8 @@ type TaskPerson = {
 
 function hasMeaningfulValue(value: unknown): boolean {
   if (value == null) return false;
-  if (Array.isArray(value)) return value.some((item) => hasMeaningfulValue(item));
+  if (Array.isArray(value))
+    return value.some((item) => hasMeaningfulValue(item));
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
     if (typeof obj.text === "string") return obj.text.trim().length > 0;
@@ -168,7 +169,8 @@ function extractUsers(value: unknown): TaskPerson[] {
     const name = (item as any).name;
     const enName = (item as any).enName || (item as any).en_name;
     if (typeof name === "string" && name.trim().length > 0) person.name = name;
-    if (typeof enName === "string" && enName.trim().length > 0) person.enName = enName;
+    if (typeof enName === "string" && enName.trim().length > 0)
+      person.enName = enName;
     users.push(person);
   }
   return users;
@@ -183,7 +185,8 @@ function usersToDisplay(users: TaskPerson[]): string {
 
 function formatDeadlineValue(value: unknown): string {
   if (value == null) return "";
-  if (typeof value === "number" && !Number.isNaN(value)) return fmtYmd(new Date(value));
+  if (typeof value === "number" && !Number.isNaN(value))
+    return fmtYmd(new Date(value));
   if (value instanceof Date) return fmtYmd(value);
   if (typeof value === "string") return value;
   if (typeof value === "object" && value) {
@@ -240,7 +243,8 @@ function normalizeTaskResults(input: unknown): TaskSyncResultEntry[] {
     const obj = input as Record<string, unknown>;
     if (Array.isArray(obj.results)) return obj.results as TaskSyncResultEntry[];
     if (Array.isArray(obj.data)) return obj.data as TaskSyncResultEntry[];
-    if (obj.result && Array.isArray(obj.result)) return obj.result as TaskSyncResultEntry[];
+    if (obj.result && Array.isArray(obj.result))
+      return obj.result as TaskSyncResultEntry[];
     if (obj.recordId || obj.status || obj.message || obj.detail) {
       return [obj as TaskSyncResultEntry];
     }
@@ -284,24 +288,28 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-function ensureTaskSyncConfig(): void {
-  if (!TASK_SYNC_URL || TASK_SYNC_URL.trim() === "") {
-    throw new Error("未配置 TASK_SYNC_URL，无法同步任务");
+async function ensureTaskSyncConfig(): Promise<string> {
+  if (!TASK_SYNC_TRIGGER_API || TASK_SYNC_TRIGGER_API.trim() === "") {
+    throw new Error("未配置 TASK_SYNC_TRIGGER_API，无法同步任务");
   }
-  if (!TASK_SYNC_API || TASK_SYNC_API.trim() === "") {
-    throw new Error("未配置 TASK_SYNC_API，无法同步任务");
+  const webhookUrl = await getTaskSyncWebhookUrl();
+  if (!webhookUrl || webhookUrl.trim() === "") {
+    throw new Error("未找到有效的任务同步 webhook 地址");
   }
+  return webhookUrl.trim();
 }
 
-async function triggerTaskSyncBatch(entries: TaskSyncEntry[]): Promise<TaskSyncResponse> {
-  ensureTaskSyncConfig();
-  const resp = await fetch(TASK_SYNC_API, {
+async function triggerTaskSyncBatch(
+  entries: TaskSyncEntry[]
+): Promise<TaskSyncResponse> {
+  const webhookUrl = await ensureTaskSyncConfig();
+  const resp = await fetch(TASK_SYNC_TRIGGER_API, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      webhookUrl: TASK_SYNC_URL,
+      webhookUrl,
       records: entries,
     }),
   });
@@ -341,7 +349,8 @@ async function triggerTaskSyncBatch(entries: TaskSyncEntry[]): Promise<TaskSyncR
   }
 
   const message =
-    (typeof data === "object" && (data?.message || data?.detail || data?.error)) ||
+    (typeof data === "object" &&
+      (data?.message || data?.detail || data?.error)) ||
     (typeof raw === "string" && raw) ||
     "任务同步请求失败";
   throw new Error(`HTTP ${resp.status}: ${message}`);
@@ -380,7 +389,8 @@ async function pollTaskSyncJob(
     }
     if (!resp.ok) {
       const message =
-        (typeof data === "object" && (data?.message || data?.detail || data?.error)) ||
+        (typeof data === "object" &&
+          (data?.message || data?.detail || data?.error)) ||
         raw ||
         "查询批量任务状态失败";
       throw new Error(`HTTP ${resp.status}: ${message}`);
@@ -407,7 +417,9 @@ async function pollTaskSyncJob(
 
 export function bindUIEvents() {
   const $customDeadline = $("#customDeadlinePicker");
-  const $deadlineRadios = $("#todayRadio, #tomorrowRadio, #afterTomorrowRadio");
+  const $deadlineRadios = $(
+    "#todayRadio, #tomorrowRadio, #afterTomorrowRadio, #somedayRadio"
+  );
 
   if ($customDeadline.length) {
     const clearCustomDeadline = () => {
@@ -420,7 +432,7 @@ export function bindUIEvents() {
     };
 
     $customDeadline.on("change", function () {
-      const val = String(($customDeadline.val() ?? "")).trim();
+      const val = String($customDeadline.val() ?? "").trim();
       if (val) {
         $deadlineRadios.prop("checked", false);
       } else {
@@ -471,7 +483,11 @@ export function bindUIEvents() {
         FIELD_KEYS.followers.type
       );
       const remarkId = getFieldIdByName(fieldMetas, "任务备注", FieldType.Text);
-      const commentId = getFieldIdByName(fieldMetas, "任务评论", FieldType.Text);
+      const commentId = getFieldIdByName(
+        fieldMetas,
+        "任务评论",
+        FieldType.Text
+      );
 
       if (!assigneesId || !taskNameId || !deadlineId || !statusId) {
         showUserError("未找到同步所需的字段，请确认当前表格字段配置");
@@ -526,7 +542,8 @@ export function bindUIEvents() {
         })
       );
 
-      const records: { recordId: string; fields: Record<string, unknown> }[] = [];
+      const records: { recordId: string; fields: Record<string, unknown> }[] =
+        [];
       fetchResults.forEach((res, idx) => {
         const recordId = targetRecordIds[idx] || "未知记录";
         if (res.status === "fulfilled") {
@@ -545,14 +562,20 @@ export function bindUIEvents() {
       const checked = records.map((rec) => {
         const fields = rec.fields || {};
         const conditions: string[] = [];
-        if (!hasMeaningfulValue(fields[taskNameId])) conditions.push("任务名称");
-        if (!hasMeaningfulValue(fields[assigneesId])) conditions.push("任务执行者");
-        if (!hasMeaningfulValue(fields[deadlineId])) conditions.push("任务截止时间");
-        if (!hasMeaningfulValue(fields[statusId])) conditions.push("任务完成状态");
+        if (!hasMeaningfulValue(fields[taskNameId]))
+          conditions.push("任务名称");
+        if (!hasMeaningfulValue(fields[assigneesId]))
+          conditions.push("任务执行者");
+        if (!hasMeaningfulValue(fields[deadlineId]))
+          conditions.push("任务截止时间");
+        if (!hasMeaningfulValue(fields[statusId]))
+          conditions.push("任务完成状态");
         return { rec, missing: conditions };
       });
 
-      const eligible = checked.filter((item) => item.missing.length === 0).map((item) => item.rec);
+      const eligible = checked
+        .filter((item) => item.missing.length === 0)
+        .map((item) => item.rec);
       const skippedCount = checked.length - eligible.length;
 
       if (eligible.length === 0) {
@@ -625,9 +648,7 @@ export function bindUIEvents() {
         showToast(`成功同步 ${successCount} 条任务${skippedMsg}`, "success");
       } else if (failureCount === 0) {
         const acceptedMsg =
-          acceptedCount > 0
-            ? `，${acceptedCount} 条任务仍在集成流中执行`
-            : "";
+          acceptedCount > 0 ? `，${acceptedCount} 条任务仍在集成流中执行` : "";
         const pendingMsg =
           pendingCount > 0 ? `，${pendingCount} 条任务状态待确认` : "";
         const skippedMsg = skippedCount > 0 ? `，跳过 ${skippedCount} 条` : "";
@@ -682,7 +703,9 @@ export function bindUIEvents() {
     const weekStart = fmtYmd(weekStartDate);
     const weekEnd = fmtYmd(weekEndDate);
 
-    let table, fieldMetas, recordList;
+    let table: any;
+    let fieldMetas: any[];
+    let recordList: any[];
     try {
       table = await bitable.base.getActiveTable();
       //    getFieldMetaList = [
@@ -921,7 +944,7 @@ export function bindUIEvents() {
     const opsChecked = $("#opsCheckbox").prop("checked");
 
     // 未配置后端时，给出明确提示并跳过网络发送
-    if (!BACKEND_URL || BACKEND_URL.trim() === "") {
+    if (!TASK_SEND_API || TASK_SEND_API.trim() === "") {
       showUserError("未配置后端地址，已跳过发送（上线审核运行安全策略）");
       return;
     }
@@ -967,7 +990,9 @@ export function bindUIEvents() {
       if ($customDeadline.length) {
         const customValue = String($customDeadline.val() ?? "").trim();
         if (customValue) {
-          const parts = customValue.split("-").map((part) => Number(part));
+          const parts = customValue
+            .split(/[\-\/]/)
+            .map((part) => Number(part));
           if (parts.length === 3) {
             const [year, month, day] = parts;
             if (
@@ -985,7 +1010,11 @@ export function bindUIEvents() {
         }
       }
 
-      if (typeof deadlineTimestamp !== "number") {
+      const somedaySelected = $("#somedayRadio").prop("checked");
+
+      if (somedaySelected) {
+        deadlineTimestamp = undefined;
+      } else if (typeof deadlineTimestamp !== "number") {
         const base = new Date();
         base.setHours(0, 0, 0, 0);
         let offsetDays = 0;
@@ -1063,8 +1092,10 @@ export function bindUIEvents() {
       }
 
       const summaryParts: string[] = [];
-      if (successes.length > 0) summaryParts.push(`成功 ${successes.length} 条`);
-      if (duplicates.length > 0) summaryParts.push(`重复 ${duplicates.length} 条`);
+      if (successes.length > 0)
+        summaryParts.push(`成功 ${successes.length} 条`);
+      if (duplicates.length > 0)
+        summaryParts.push(`重复 ${duplicates.length} 条`);
       if (failures.length > 0) summaryParts.push(`失败 ${failures.length} 条`);
 
       const formatListPreview = (items: string[]): string => {
@@ -1091,10 +1122,7 @@ export function bindUIEvents() {
         }
         const message = `${summaryParts.join("，")}。${detailParts.join("；")}`;
         showToast(message, "warning");
-        const remaining = [
-          ...duplicates,
-          ...failures.map((item) => item.task),
-        ];
+        const remaining = [...duplicates, ...failures.map((item) => item.task)];
         $("#insertText").val(remaining.join("\n"));
       }
     } catch (err) {
@@ -1167,7 +1195,53 @@ $("#generateLabel").on("click", async function () {
     try {
       table = await bitable.base.getActiveTable();
       fieldMetas = await table.getFieldMetaList();
-      recordList = await table.getRecordList();
+      const rawList = await table.getRecordList();
+      const recordsArray: any[] = Array.isArray(rawList)
+        ? rawList
+        : Array.from((rawList as any) || []);
+
+      try {
+        const view = await table.getActiveView();
+        const visibleIdList = (await view.getVisibleRecordIdList())?.filter(
+          (id): id is string => typeof id === "string" && id.length > 0
+        ) ?? [];
+        const visibleIds = new Set<string>(visibleIdList);
+        const activeTable = table;
+        const results = await Promise.allSettled(
+          Array.from(visibleIds).map(async (id) => {
+            const data: any = await activeTable.getRecordById(id);
+            return { id, data };
+          })
+        );
+
+        recordList = [];
+        results.forEach((item) => {
+          if (item.status === "fulfilled") {
+            const { id, data } = item.value || {};
+            const fields = (data && (data.fields || data)) ?? {};
+            recordList.push({
+              record: {
+                recordId: id,
+                fields,
+              },
+            });
+          } else {
+            console.warn(
+              "获取视图记录失败",
+              (item as PromiseRejectedResult).reason
+            );
+          }
+        });
+
+        // 兜底：若获取失败则回退到原始列表
+        if (recordList.length === 0) {
+          console.warn("视图记录未加载成功，回退到 getRecordList 结果");
+          recordList = recordsArray;
+        }
+      } catch (viewErr) {
+        console.warn("获取当前视图记录失败，回退到全部记录", viewErr);
+        recordList = recordsArray;
+      }
     } catch (err) {
       logError("获取表格字段和记录失败", err);
       showUserError("无法读取表格字段或记录，请检查权限或网络连接");
@@ -1216,6 +1290,31 @@ $("#generateLabel").on("click", async function () {
       false,
       includeCompleted
     );
+
+    if ((import.meta.env as any)?.MODE !== "production") {
+      console.groupCollapsed(
+        "Label generator input",
+        `picked=${pickedNorm}`,
+        `includeCompleted=${includeCompleted}`
+      );
+      const debugRecords = Array.from(recordList).map((rec: any) => ({
+        id: rec?.record?.recordId,
+        deadline: rec?.record?.fields?.[deadlineId as string],
+        status: rec?.record?.fields?.[statusId as string]?.text ?? rec?.record?.fields?.[statusId as string],
+        task: getFieldText(rec, taskNameId),
+      }));
+      console.table(debugRecords);
+      console.log(
+        "matched",
+        matched.length,
+        matched.map((rec) => ({
+          id: rec?.record?.recordId,
+          task: getFieldText(rec, taskNameId),
+        }))
+      );
+      console.groupEnd();
+    }
+
 
     // 根据“我 (me)”选择框过滤包含/排除“我的任务”
     try {

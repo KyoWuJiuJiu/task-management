@@ -7,7 +7,8 @@ declare module 'jquery-i18next' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_TASK_SYNC_API?: string;
+  readonly VITE_TASK_SEND_API?: string;
+  readonly VITE_TASK_SYNC_TRIGGER_API?: string;
 }
 
 interface ImportMeta {
