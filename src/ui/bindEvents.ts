@@ -19,6 +19,7 @@ import { getFieldText } from "../utils/fieldTools";
 import { buildAvery5160WordHtml } from "../templates/wordLabelTemplate";
 import { showToast } from "../utils/logger";
 import { insertOneTask } from "../core/recordInsert";
+import { fetchAllRecords } from "../utils/record";
 import {
   TASK_SEND_API,
   TASK_SYNC_STATUS_API,
@@ -833,7 +834,7 @@ export function bindUIEvents() {
       // 读取字段元数据与记录列表
       fieldMetas = await table.getFieldMetaList();
       // 从表格中获取记录列表，返回表格中的所有记录（即表格的行数据）
-      recordList = await table.getRecordList();
+      recordList = await fetchAllRecords(table);
     } catch (err) {
       logError("获取表格字段和记录失败", err);
       showUserError("无法读取表格字段或记录，请检查权限或网络连接");
@@ -1059,14 +1060,14 @@ export function bindUIEvents() {
         console.warn("获取当前用户失败，将不写入执行者/关注者:", e);
       }
 
-      const successes: { task: string; recordId: string }[] = [];
+      const successes: { task: string; recordId: string; duplicated: boolean }[] = [];
       const duplicates: string[] = [];
       const failures: { task: string; reason: string }[] = [];
 
       for (const taskName of tasks) {
-        if (existingNames.has(taskName)) {
+        const alreadyExists = existingNames.has(taskName);
+        if (alreadyExists) {
           duplicates.push(taskName);
-          continue;
         }
 
         const payload: any = {
@@ -1082,7 +1083,7 @@ export function bindUIEvents() {
 
         try {
           const recordId = await insertOneTask(payload);
-          successes.push({ task: taskName, recordId });
+          successes.push({ task: taskName, recordId, duplicated: alreadyExists });
           existingNames.add(taskName);
         } catch (err) {
           logError(`插入记录 ${taskName} 失败`, err);
@@ -1095,7 +1096,7 @@ export function bindUIEvents() {
       if (successes.length > 0)
         summaryParts.push(`成功 ${successes.length} 条`);
       if (duplicates.length > 0)
-        summaryParts.push(`重复 ${duplicates.length} 条`);
+        summaryParts.push(`重复 ${duplicates.length} 条（已重新创建）`);
       if (failures.length > 0) summaryParts.push(`失败 ${failures.length} 条`);
 
       const formatListPreview = (items: string[]): string => {
@@ -1109,7 +1110,7 @@ export function bindUIEvents() {
       } else {
         const detailParts: string[] = [];
         if (duplicates.length > 0) {
-          detailParts.push(`重复: ${formatListPreview(duplicates)}`);
+          detailParts.push(`重复（已重新创建）: ${formatListPreview(duplicates)}`);
         }
         if (failures.length > 0) {
           const failurePreview = failures
@@ -1122,7 +1123,7 @@ export function bindUIEvents() {
         }
         const message = `${summaryParts.join("，")}。${detailParts.join("；")}`;
         showToast(message, "warning");
-        const remaining = [...duplicates, ...failures.map((item) => item.task)];
+        const remaining = failures.map((item) => item.task);
         $("#insertText").val(remaining.join("\n"));
       }
     } catch (err) {
@@ -1168,8 +1169,8 @@ $("#generateLabel").on("click", async function () {
     const includeMe = $("#includeMeCheckbox").prop("checked");
     const includeCompleted = $("#includeCompletedCheckbox").prop("checked");
 
-    // 读取并规范日期
-    const pickedRaw = String($("#dateSelect").val() || "").trim();
+    // 读取并规范日期（改为读取 print label 专用日期框）
+    const pickedRaw = String($("#labelDateSelect").val() || "").trim();
     if (!pickedRaw) {
       showUserError("请先选择日期");
       return;
@@ -1195,53 +1196,20 @@ $("#generateLabel").on("click", async function () {
     try {
       table = await bitable.base.getActiveTable();
       fieldMetas = await table.getFieldMetaList();
-      const rawList = await table.getRecordList();
-      const recordsArray: any[] = Array.isArray(rawList)
-        ? rawList
-        : Array.from((rawList as any) || []);
-
+      let viewId: string | undefined;
       try {
         const view = await table.getActiveView();
-        const visibleIdList = (await view.getVisibleRecordIdList())?.filter(
-          (id): id is string => typeof id === "string" && id.length > 0
-        ) ?? [];
-        const visibleIds = new Set<string>(visibleIdList);
-        const activeTable = table;
-        const results = await Promise.allSettled(
-          Array.from(visibleIds).map(async (id) => {
-            const data: any = await activeTable.getRecordById(id);
-            return { id, data };
-          })
-        );
-
-        recordList = [];
-        results.forEach((item) => {
-          if (item.status === "fulfilled") {
-            const { id, data } = item.value || {};
-            const fields = (data && (data.fields || data)) ?? {};
-            recordList.push({
-              record: {
-                recordId: id,
-                fields,
-              },
-            });
-          } else {
-            console.warn(
-              "获取视图记录失败",
-              (item as PromiseRejectedResult).reason
-            );
+        if (view) {
+          if (typeof (view as any)?.id === "string") {
+            viewId = (view as any).id;
+          } else if (typeof (view as any)?.getId === "function") {
+            viewId = await (view as any).getId();
           }
-        });
-
-        // 兜底：若获取失败则回退到原始列表
-        if (recordList.length === 0) {
-          console.warn("视图记录未加载成功，回退到 getRecordList 结果");
-          recordList = recordsArray;
         }
       } catch (viewErr) {
-        console.warn("获取当前视图记录失败，回退到全部记录", viewErr);
-        recordList = recordsArray;
+        console.warn("获取当前视图失败，将使用整个数据表", viewErr);
       }
+      recordList = await fetchAllRecords(table, { viewId });
     } catch (err) {
       logError("获取表格字段和记录失败", err);
       showUserError("无法读取表格字段或记录，请检查权限或网络连接");

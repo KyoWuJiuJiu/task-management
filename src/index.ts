@@ -12,4 +12,5 @@ $(function () {
   bindUIEvents();
   initDatePicker();
   initDatePicker("#customDeadlinePicker");
+  initDatePicker("#labelDateSelect");
 });

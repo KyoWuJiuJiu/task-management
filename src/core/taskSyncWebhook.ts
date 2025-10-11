@@ -1,5 +1,6 @@
 import { bitable } from "@lark-base-open/js-sdk";
 import { TASK_SYNC_WEBHOOK_TABLE_NAME } from "../config/config";
+import { fetchAllRecords } from "../utils/record";
 
 let cachedWebhookUrl: string | null = null;
 let ongoingFetch: Promise<string> | null = null;
@@ -50,10 +51,7 @@ async function loadWebhookUrl(): Promise<string> {
     throw new Error("无法确认集成流URL 表的首列字段");
   }
 
-  const recordList = await table.getRecordList();
-  const records: any[] = Array.isArray(recordList)
-    ? (recordList as any[])
-    : Array.from((recordList as any) || []);
+  const records = await fetchAllRecords(table);
   if (!records.length) {
     throw new Error("集成流URL 表中没有记录");
   }

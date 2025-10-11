@@ -30,23 +30,61 @@ export function buildTaskSummary(
 
   const uniqueTaskKeys = new Set<string>(); //表示创建一个 字符串类型的 Set 集合，其中只能存储 字符串 类型的元素。唯一建立空的集合的方法
 
+  function formatAssignees(rec: any): {
+    mentionText: string;
+    key: string;
+  } {
+    const raw = rec?.record?.fields?.[assigneesId];
+    if (!Array.isArray(raw)) {
+      const fallback = displayPeople(rec, assigneesId);
+      return {
+        mentionText: fallback,
+        key: fallback,
+      };
+    }
+    const mentions: string[] = [];
+    const keyParts: string[] = [];
+    for (const person of raw) {
+      const id = String(person?.id ?? "").trim();
+      const name =
+        String(person?.name ?? person?.enName ?? person?.en_name ?? "").trim();
+      if (id) {
+        mentions.push(`@${id}`);
+        keyParts.push(id);
+      } else if (name) {
+        // 无有效 id 时，仅作为文本展示
+        mentions.push(`@${name}`);
+        keyParts.push(name);
+      }
+    }
+    const mentionText = mentions.join(", ");
+    const key = keyParts.join("|") || displayPeople(rec, assigneesId);
+    return {
+      mentionText: mentionText || displayPeople(rec, assigneesId),
+      key,
+    };
+  }
+
   function taskKey(rec: any): string {
-    const assignees = displayPeople(rec, assigneesId);
+    const { key } = formatAssignees(rec);
     const project = getFieldText(rec, projectId);
     const taskName = getFieldText(rec, taskNameId);
     const status = getFieldText(rec, statusId);
-    return `${assignees}__${project}__${taskName}__${status}`;
+    return `${key}__${project}__${taskName}__${status}`;
   }
 
   for (const rec of matched) {
-    const f = (id: string) => rec.record?.fields?.[id];
-    const assignees = displayPeople(rec, assigneesId);
+    const { mentionText } = formatAssignees(rec);
     const project = getFieldText(rec, projectId);
     const taskName = getFieldText(rec, taskNameId);
     const status = getFieldText(rec, statusId);
     const key = taskKey(rec);
     if (!uniqueTaskKeys.has(key)) {
-      lines.push(`${assignees}, ${project}, ${taskName}, ${status}`);
+      const assigneeSegment =
+        mentionText && mentionText.trim().length > 0
+          ? mentionText
+          : displayPeople(rec, assigneesId);
+      lines.push(`${assigneeSegment}, ${project}, ${taskName}, ${status}`);
       uniqueTaskKeys.add(key);
     }
   }
@@ -54,14 +92,17 @@ export function buildTaskSummary(
   if (isThisWeek && weekMatched.length > 0) {
     lines.push(`\n本周任务:`);
     for (const rec of weekMatched) {
-      const f = (id: string) => rec.record?.fields?.[id];
-      const assignees = displayPeople(rec, assigneesId);
+      const { mentionText } = formatAssignees(rec);
       const project = getFieldText(rec, projectId);
       const taskName = getFieldText(rec, taskNameId);
       const status = getFieldText(rec, statusId);
       const key = taskKey(rec);
       if (!uniqueTaskKeys.has(key)) {
-        lines.push(`${assignees}, ${project}, ${taskName}, ${status}`);
+        const assigneeSegment =
+          mentionText && mentionText.trim().length > 0
+            ? mentionText
+            : displayPeople(rec, assigneesId);
+        lines.push(`${assigneeSegment}, ${project}, ${taskName}, ${status}`);
         uniqueTaskKeys.add(key);
       }
     }
