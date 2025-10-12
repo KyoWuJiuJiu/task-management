@@ -16,7 +16,7 @@ export function buildTaskSummary(
 ): string {
   const {
     assigneesId,
-    projectId,
+    projectId: _projectId,
     taskNameId,
     statusId,
     pickedDateStr,
@@ -67,15 +67,13 @@ export function buildTaskSummary(
 
   function taskKey(rec: any): string {
     const { key } = formatAssignees(rec);
-    const project = getFieldText(rec, projectId);
     const taskName = getFieldText(rec, taskNameId);
     const status = getFieldText(rec, statusId);
-    return `${key}__${project}__${taskName}__${status}`;
+    return `${key}__${taskName}__${status}`;
   }
 
   for (const rec of matched) {
     const { mentionText } = formatAssignees(rec);
-    const project = getFieldText(rec, projectId);
     const taskName = getFieldText(rec, taskNameId);
     const status = getFieldText(rec, statusId);
     const key = taskKey(rec);
@@ -84,7 +82,7 @@ export function buildTaskSummary(
         mentionText && mentionText.trim().length > 0
           ? mentionText
           : displayPeople(rec, assigneesId);
-      lines.push(`${assigneeSegment}, ${project}, ${taskName}, ${status}`);
+      lines.push(`${assigneeSegment}, ${taskName}, ${status}`);
       uniqueTaskKeys.add(key);
     }
   }
@@ -93,7 +91,6 @@ export function buildTaskSummary(
     lines.push(`\n本周任务:`);
     for (const rec of weekMatched) {
       const { mentionText } = formatAssignees(rec);
-      const project = getFieldText(rec, projectId);
       const taskName = getFieldText(rec, taskNameId);
       const status = getFieldText(rec, statusId);
       const key = taskKey(rec);
@@ -102,7 +99,7 @@ export function buildTaskSummary(
           mentionText && mentionText.trim().length > 0
             ? mentionText
             : displayPeople(rec, assigneesId);
-        lines.push(`${assigneeSegment}, ${project}, ${taskName}, ${status}`);
+        lines.push(`${assigneeSegment}, ${taskName}, ${status}`);
         uniqueTaskKeys.add(key);
       }
     }

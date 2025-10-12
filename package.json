@@ -8,7 +8,9 @@
     "start": "npm run dev",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "pack": "npm run build && rm -f dist.zip && cd dist && zip -r ../dist.zip ."
+    "pack": "npm run build && rm -f dist.zip && cd dist && zip -r ../dist.zip .",
+    "switch:local": "node scripts/switch-backend.mjs local",
+    "switch:server": "node scripts/switch-backend.mjs server"
   },
   "keywords": [],
   "author": "",
