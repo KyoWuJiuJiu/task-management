@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Base Extensions</title>
-    <script type="module" crossorigin src="./assets/index.38fe3c3e.js"></script>
+    <script type="module" crossorigin src="./assets/index.e233897b.js"></script>
     <link rel="stylesheet" href="./assets/index.ac574806.css">
   </head>
 
@@ -161,6 +161,18 @@
             </select>
           </div>
         </div>
+
+        <!-- 日期选择框：与发送区一致，id 为 labelDateSelect -->
+        <div class="mb-3">
+          <label for="labelDateSelect" class="form-label fw-bold ms-1">任务截止日期</label>
+          <input
+            type="text"
+            id="labelDateSelect"
+            class="form-control"
+            placeholder="Select Date"
+          />
+        </div>
+
         <button
           class="btn btn-outline-primary"
           type="button"
@@ -227,6 +239,17 @@
                 >后天</label
               >
             </div>
+          </div>
+          <div class="form-check m-0 mt-2">
+            <input
+              class="form-check-input border border-dark shadow-lg"
+              type="radio"
+              name="deadlineChoice"
+              id="somedayRadio"
+            />
+            <label class="form-check-label fw-bold" for="somedayRadio"
+              >Someday/Maybe</label
+            >
           </div>
           <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
             <label class="form-check-label fw-bold" for="customDeadlinePicker"
