@@ -22,6 +22,10 @@ const PROFILES = {
     VITE_TASK_SEND_API: "https://192.168.0.96:9876/api/endpoint",
     VITE_TASK_SYNC_TRIGGER_API: "https://192.168.0.96:9876/api/task-sync",
   },
+  prod: {
+    VITE_TASK_SEND_API: "https://kyowu.nbparamont.com:16666/api/endpoint",
+    VITE_TASK_SYNC_TRIGGER_API: "https://kyowu.nbparamont.com:16666/api/task-sync",
+  },
 };
 
 const [, , profileArg] = process.argv;
@@ -47,4 +51,3 @@ const content =
 writeFileSync(envPath, content, "utf8");
 
 console.log(`Updated ${envPath} using "${profile}" profile.`);
-

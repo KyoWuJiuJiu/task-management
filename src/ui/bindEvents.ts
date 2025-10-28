@@ -422,6 +422,15 @@ export function bindUIEvents() {
     "#todayRadio, #tomorrowRadio, #afterTomorrowRadio, #somedayRadio"
   );
 
+  const handleInsertShortcut = (event: JQuery.KeyDownEvent) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (!$("#insertButton").prop("disabled")) {
+        $("#insertButton").trigger("click");
+      }
+    }
+  };
+
   if ($customDeadline.length) {
     const clearCustomDeadline = () => {
       const picker = ($customDeadline.get(0) as any)?._flatpickr;
@@ -441,6 +450,9 @@ export function bindUIEvents() {
           $("#todayRadio").prop("checked", true);
         }
       }
+      // 当通过日期选择器选择日期后，flatpickr 不会自动聚焦输入框，需要手动触发一次 focus，
+      // 以便后续能在该输入框上监听到 Cmd/Ctrl + Enter 快捷键。
+      $customDeadline.trigger("focus");
     });
 
     $deadlineRadios.on("change", function () {
@@ -1136,14 +1148,9 @@ export function bindUIEvents() {
     }
   });
 
-  $("#insertText").on("keydown", function (event: JQuery.KeyDownEvent) {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      if (!$("#insertButton").prop("disabled")) {
-        $("#insertButton").trigger("click");
-      }
-    }
-  });
+  $("#insertText").on("keydown", handleInsertShortcut);
+  $deadlineRadios.on("keydown", handleInsertShortcut);
+  $customDeadline.on("keydown", handleInsertShortcut);
 }
 
 $("#generateLabel").on("click", async function () {
